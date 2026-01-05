@@ -15,10 +15,15 @@ export default function TripSelector() {
     // Legacy ID constraint (until full migration)
     const selectedTripId = selectedTrip?.id
 
-    // Set default date on client-side to avoid hydration mismatch
+    // Set default date on client-side to avoid hydration mismatch and ensure Local Time
     React.useEffect(() => {
         if (!selectedDate) {
-            dispatch(setSelectedDate(new Date().toISOString()))
+            const today = new Date();
+            const year = today.getFullYear();
+            const month = String(today.getMonth() + 1).padStart(2, '0');
+            const day = String(today.getDate()).padStart(2, '0');
+            const localDate = `${year}-${month}-${day}`;
+            dispatch(setSelectedDate(localDate))
         }
     }, [selectedDate, dispatch])
 
@@ -44,7 +49,7 @@ export default function TripSelector() {
                     .select(`
                         *,
                         buses (id, name, type, total_seats, seat_layout_type),
-                        routes (source_city, destination_city, boarding_points)
+                        routes (source_city, destination_city, boarding_points, dropping_points)
                     `)
                     .eq('is_active', true)
                     .order('departure_time', { ascending: true }),
@@ -76,7 +81,7 @@ export default function TripSelector() {
                     busType: service.buses.type,
                     source: service.routes.source_city,
                     dest: service.routes.destination_city,
-                    groupId: `${service.buses.id}-${service.routes.id}`,
+                    groupId: service.buses.id, // Group by Bus Only (Unified Folder)
                     
                     time: service.departure_time.slice(0, 5),
                     seatsLeft: (service.buses.total_seats || 40) - bookedCount,
@@ -84,6 +89,7 @@ export default function TripSelector() {
                     price: service.price,
                     layout: service.buses.seat_layout_type,
                     boardingPoints: service.routes.boarding_points,
+                    droppingPoints: service.routes.dropping_points,
                     busId: service.buses.id
                 }
             })
@@ -110,8 +116,7 @@ export default function TripSelector() {
                     key: trip.groupId,
                     busName: trip.busName,
                     busType: trip.busType,
-                    source: trip.source,
-                    dest: trip.dest,
+                    // source/dest removed from group level as it may vary within group
                     services: []
                 }
             }
@@ -150,7 +155,7 @@ export default function TripSelector() {
                     <input 
                         type="date" 
                         value={selectedDate ? selectedDate.split('T')[0] : ''} 
-                        onChange={(e) => dispatch(setSelectedDate(new Date(e.target.value).toISOString()))}
+                        onChange={(e) => dispatch(setSelectedDate(e.target.value))}
                         className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-foreground rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all uppercase tracking-wide cursor-pointer"
                     />
                     <Calendar className="absolute right-4 top-3.5 h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors pointer-events-none" />
@@ -167,7 +172,7 @@ export default function TripSelector() {
                                 <Bus className="h-4 w-4" />
                                 {selectedTrip.busName}
                              </div>
-                             <p className="text-xs text-muted-foreground mt-0.5">{selectedTrip.time} • ₹{selectedTrip.price}</p>
+                             <p className="text-xs text-muted-foreground mt-0.5">{selectedTrip.time} • {selectedTrip.source} ➝ {selectedTrip.dest}</p>
                         </div>
                         <button 
                             onClick={() => setIsListExpanded(true)}
@@ -195,28 +200,23 @@ export default function TripSelector() {
                         </div>
                     )}
 
-                    {/* Grouped Display */}
+                    {/* Grouped Display - Unified Folders */}
                     {groupedTrips.map(group => (
                         <div key={group.key} className="bg-white dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-sm">
-                            {/* Group Header */}
+                            {/* Group Header - Generic Bus Info */}
                             <div className="p-4 bg-zinc-50/50 dark:bg-zinc-900/50 border-b border-zinc-100 dark:border-zinc-800">
-                                <div className="flex justify-between items-start">
-                                    <div>
-                                        <h3 className="font-bold text-sm text-zinc-800 dark:text-zinc-100 flex items-center gap-2">
-                                            <Bus className="h-4 w-4 text-primary" />
-                                            {group.busName}
-                                        </h3>
-                                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground mt-1 ml-6">
-                                            {group.source} <span className="text-zinc-300 mx-1">➝</span> {group.dest}
-                                        </p>
-                                    </div>
+                                <div className="flex justify-between items-center">
+                                    <h3 className="font-bold text-sm text-zinc-800 dark:text-zinc-100 flex items-center gap-2">
+                                        <Bus className="h-4 w-4 text-primary" />
+                                        {group.busName}
+                                    </h3>
                                     <span className="text-[10px] font-bold bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded text-zinc-500">
                                         {group.busType}
                                     </span>
                                 </div>
                             </div>
 
-                            {/* Services List */}
+                            {/* Services List - Specific Route Info */}
                             <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
                                 {group.services.map(trip => {
                                     const isSelected = selectedTripId === trip.id
@@ -231,12 +231,14 @@ export default function TripSelector() {
                                         >
                                             {isSelected && <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary" />}
                                             
-                                            <div className="flex items-center gap-4">
-                                                <div className="font-mono font-bold text-sm group-hover:text-primary transition-colors">
-                                                    {trip.time}
-                                                </div>
-                                                <div className="text-xs text-muted-foreground">
-                                                    To {group.dest}
+                                            <div className="flex flex-col gap-1">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-mono font-bold text-sm group-hover:text-primary transition-colors">
+                                                        {trip.time}
+                                                    </span>
+                                                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                                                        {trip.source} ➝ {trip.dest}
+                                                    </span>
                                                 </div>
                                             </div>
 

@@ -97,7 +97,7 @@ export default function FleetPage() {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                 <div>
                     <h2 className="text-3xl font-bold tracking-tight">Fleet Management</h2>
                     <p className="text-zinc-400">Manage your buses and configurations.</p>
@@ -107,7 +107,7 @@ export default function FleetPage() {
                         setEditingBus(null)
                         setIsAdding(!isAdding)
                     }}
-                    className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-lg hover:bg-indigo-500 transition-colors font-medium shadow-lg shadow-indigo-600/20"
+                    className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-lg hover:bg-indigo-500 transition-colors font-medium shadow-lg shadow-indigo-600/20 w-full md:w-auto justify-center"
                 >
                     <Plus className="w-4 h-4" />
                     Add New Bus
@@ -153,7 +153,7 @@ export default function FleetPage() {
                 </div>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
                 {buses.map(bus => (
                     <div key={bus.id} className="group p-5 bg-zinc-900/40 border border-white/5 rounded-xl hover:border-indigo-500/30 transition-all">
                         <div className="flex items-start justify-between mb-4">
