@@ -8,9 +8,9 @@ import { cn } from '@/lib/utils'
 
 import { supabase } from '@/lib/supabase'
 
-export default function ActionPanel() {
+export default function ActionPanel({ isMobileExpanded = true, onToggleExpand }) {
     const dispatch = useDispatch()
-    const { selectedSeats, isBookingOpen, selectedTripId, selectedDate } = useSelector(state => state.booking)
+    const { selectedSeats, isBookingOpen, selectedTrip, selectedDate } = useSelector(state => state.booking)
     
     // Form state
     const [formData, setFormData] = React.useState({
@@ -21,60 +21,33 @@ export default function ActionPanel() {
         amount: 0 // This will be per seat price initially, then calculated as total
     })
     
-    const [boardingPoints, setBoardingPoints] = React.useState([])
-    const [isLoadingData, setIsLoadingData] = React.useState(false)
-    const [stats, setStats] = React.useState({ count: 0, revenue: 0, totalSeats: 40 })
-
-    // Fetch Trip Details (Price & Boarding Points) & Real-time Stats
+    // Derived state from Redux (Instant!)
     React.useEffect(() => {
-        if (selectedTripId) {
-            fetchTripDetails()
-            fetchTripStats()
-        }
-    }, [selectedTripId, selectedDate])
-
-    // Update total amount when seats change
-    const unitPrice = React.useRef(0)
-    React.useEffect(() => {
-        if (unitPrice.current > 0) {
-            setFormData(prev => ({ 
-                ...prev, 
-                amount: unitPrice.current * selectedSeats.length 
-            }))
-        }
-    }, [selectedSeats.length])
-
-    const fetchTripDetails = async () => {
-        setIsLoadingData(true)
-        const { data } = await supabase
-            .from('master_services')
-            .select(`
-                price,
-                buses (total_seats),
-                routes (boarding_points)
-            `)
-            .eq('id', selectedTripId)
-            .single()
-        
-        if (data) {
-            unitPrice.current = data.price
+        if (selectedTrip) {
             setFormData(prev => ({
                 ...prev,
-                amount: data.price * selectedSeats.length,
-                boardingPoint: data.routes?.boarding_points?.[0] || 'Main Office'
+                amount: selectedTrip.price * (selectedSeats.length || 1),
+                boardingPoint: selectedTrip.boardingPoints?.[0] || 'Main Office'
             }))
-            setBoardingPoints(data.routes?.boarding_points || ['Main Office'])
-            setStats(prev => ({...prev, totalSeats: data.buses?.total_seats || 40}))
         }
-        setIsLoadingData(false)
-    }
+    }, [selectedTrip, selectedSeats.length])
+
+    const [stats, setStats] = React.useState({ count: 0, revenue: 0, totalSeats: 40 })
+
+    // Fetch Stats only (Prices & Points are already known)
+    React.useEffect(() => {
+        if (selectedTrip) {
+            setStats(prev => ({...prev, totalSeats: selectedTrip.totalSeats || 40}))
+            fetchTripStats()
+        }
+    }, [selectedTrip, selectedDate])
 
     const fetchTripStats = async () => {
         const dateStr = selectedDate ? selectedDate.split('T')[0] : ''
         const { data } = await supabase
             .from('bookings')
             .select('amount')
-            .eq('service_id', selectedTripId)
+            .eq('service_id', selectedTrip.id)
             .eq('travel_date', dateStr)
             .eq('status', 'Booked')
          
@@ -112,24 +85,24 @@ export default function ActionPanel() {
         )
     }
 
-    const handleBooking = async (e) => {
-        e.preventDefault()
+    const submitBooking = async (e, status = 'Booked') => {
+        if (e) e.preventDefault() // Prevent form submit if event is passed
 
         // 1. Prepare Payloads for multiple seats
         const bookingPayloads = selectedSeats.map(seat => ({
-            trip_id: null, // Legacy field, keeping null
-            service_id: selectedTripId,
+            trip_id: null, 
+            service_id: selectedTrip.id,
             seat_number: seat.seat_number,
-            passenger_name: formData.name,
-            passenger_phone: formData.phone,
+            passenger_name: formData.name || 'Blocked Seat', // Default name if blocked
+            passenger_phone: formData.phone || '0000000000',
             gender: formData.gender,
             boarding_point: formData.boardingPoint,
-            amount: parseFloat(formData.amount) / selectedSeats.length, // Split total amount per seat
+            amount: status === 'Blocked' ? 0 : (parseFloat(formData.amount) / selectedSeats.length),
             travel_date: dateStr,
-            status: 'Booked'
+            status: status
         }))
 
-        console.log("Saving Bookings:", bookingPayloads)
+        console.log(`Saving ${status} Bookings:`, bookingPayloads)
 
         // 2. Batch Insert to Supabase
         const { error } = await supabase.from('bookings').insert(bookingPayloads)
@@ -142,25 +115,27 @@ export default function ActionPanel() {
             selectedSeats.forEach(seat => {
                 dispatch(optimisticUpdateSeatStatus({
                     seatNumber: seat.seat_number,
-                    status: 'Booked',
+                    status: status,
                     passengerName: formData.name
                 }))
             })
             
             const seatNumbers = selectedSeats.map(s => s.seat_number).join(', ')
-            toast.success(`Seats ${seatNumbers} booked for ${formData.name}`)
+            toast.success(`Seats ${seatNumbers} ${status === 'Blocked' ? 'Blocked' : 'Booked'} successfully`)
             
-            // 4. WhatsApp Integration
-            const message = `*Booking Confirmed!* 🚍%0A` +
-                            `*Passenger:* ${formData.name}%0A` +
-                            `*Seats:* ${seatNumbers}%0A` +
-                            `*Date:* ${dateStr}%0A` +
-                            `*Boarding:* ${formData.boardingPoint}%0A` +
-                            `*Amount:* ₹${formData.amount}%0A%0A` +
-                            `Thank you for traveling with us! 🙏`
-            
-            const waLink = `https://wa.me/91${formData.phone}?text=${message}`
-            window.open(waLink, '_blank')
+            // 4. WhatsApp Integration (Only for confirmed bookings or if data exists)
+            if (formData.phone && status === 'Booked') {
+                const message = `*Booking Confirmed!* 🚍%0A` +
+                                `*Passenger:* ${formData.name}%0A` +
+                                `*Seats:* ${seatNumbers}%0A` +
+                                `*Date:* ${dateStr}%0A` +
+                                `*Boarding:* ${formData.boardingPoint}%0A` +
+                                `*Amount:* ₹${formData.amount}%0A%0A` +
+                                `Thank you for traveling with us! 🙏`
+                
+                const waLink = `https://wa.me/91${formData.phone}?text=${message}`
+                window.open(waLink, '_blank')
+            }
 
             dispatch(closeBookingPanel())
             
@@ -171,118 +146,180 @@ export default function ActionPanel() {
     }
 
     return (
-        <div className="h-full flex flex-col bg-white dark:bg-zinc-900 shadow-2xl z-20">
-            {/* Header */}
-            <div className="p-6 border-b border-border flex items-center justify-between bg-zinc-900 text-white sticky top-0 shrink-0">
-                <div>
-                   <h2 className="font-bold text-lg flex items-center gap-2">
-                        Booking {selectedSeats.length} Seat{selectedSeats.length > 1 ? 's' : ''}
-                        <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded-full font-normal">
-                             {selectedSeats.map(s => s.seat_number).join(', ')}
-                        </span>
-                   </h2>
-                   <p className="text-xs opacity-70 mt-0.5">{dateStr}</p>
+        <div className="h-full flex flex-col bg-white dark:bg-zinc-950 shadow-2xl z-20 border-l border-zinc-200 dark:border-zinc-800 lg:rounded-none rounded-t-[2rem]">
+            {/* Header: Minimal & informative */}
+            <div className="px-6 pb-5 pt-3 lg:pt-5 border-b border-zinc-100 dark:border-zinc-900 bg-white dark:bg-zinc-950 flex flex-col sticky top-0 shrink-0 z-10 transition-colors group">
+                
+                {/* Mobile Drag Handle / Indicator */}
+                <div className="w-full flex justify-center lg:hidden mb-4">
+                     {isMobileExpanded ? (
+                         <div 
+                            className="w-12 h-1.5 bg-zinc-300 dark:bg-zinc-800 rounded-full opacity-50 cursor-pointer"
+                            onClick={(e) => { e.stopPropagation(); onToggleExpand?.(false) }} 
+                         />
+                     ) : (
+                         <div className="flex flex-col items-center gap-1 animate-pulse">
+                             <div className="w-10 h-1 bg-primary/50 rounded-full" />
+                             <span className="text-[10px] font-bold text-primary uppercase tracking-widest">Tap to Book</span>
+                         </div>
+                     )}
                 </div>
-                <button onClick={() => dispatch(closeBookingPanel())} className="p-2 hover:bg-white/10 rounded-full transition-colors">
-                    <X className="h-5 w-5" />
-                </button>
+                
+                <div className="flex items-center justify-between w-full">
+                    <div className="flex-1">
+                        <h2 className="font-bold text-xl tracking-tight text-zinc-900 dark:text-zinc-50 flex items-center gap-2">
+                             {selectedSeats.length} Seat{selectedSeats.length > 1 ? 's' : ''} Selected
+                             {!isMobileExpanded && <span className="lg:hidden text-xs bg-primary text-white px-2 py-0.5 rounded-full animate-in fade-in">Continue</span>}
+                        </h2>
+                        <div className="flex items-center gap-2 mt-1">
+                                <span className="text-xs font-medium text-zinc-400">
+                                    {selectedSeats.map(s => s.seat_number).join(', ')}
+                                </span>
+                                <div className="h-1 w-1 rounded-full bg-zinc-300" />
+                                <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">
+                                    ₹{formData.amount}
+                                </span>
+                        </div>
+                    </div>
+                    <button 
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            dispatch(closeBookingPanel());
+                        }} 
+                        className="h-8 w-8 flex items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-900 text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors"
+                    >
+                        <X className="h-4 w-4" />
+                    </button>
+                </div>
             </div>
 
-            {/* Form */}
-            <form id="booking-form" onSubmit={handleBooking} className="flex-1 overflow-y-auto p-6 space-y-6">
+            {/* Form Content */}
+            <form id="booking-form" onSubmit={(e) => submitBooking(e, 'Booked')} className="flex-1 overflow-y-auto p-6 space-y-8">
                 
-                <div className="space-y-5">
-                    <div className="space-y-1.5">
-                        <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5 ml-1">
-                            <User className="h-3.5 w-3.5" /> Passenger Name
-                        </label>
-                        <input 
-                            required
-                            autoFocus
-                            className="w-full bg-muted/20 border-2 border-muted hover:border-muted-foreground/30 focus:border-primary focus:bg-white dark:focus:bg-zinc-950 rounded-xl p-3 text-sm transition-all outline-none font-medium"
-                            placeholder="Enter full name"
-                            value={formData.name}
-                            onChange={e => setFormData({...formData, name: e.target.value})}
-                        />
+                {/* 1. Passenger Info */}
+                <div className="space-y-4">
+                    <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-widest pl-1">Passenger Details</h3>
+                    
+                    {/* Name Input */}
+                    <div className="group bg-zinc-50 dark:bg-zinc-900/50 border border-transparent focus-within:border-zinc-300 dark:focus-within:border-zinc-700 rounded-2xl transition-all duration-200">
+                        <div className="flex items-center px-4 py-3">
+                            <User className="h-5 w-5 text-zinc-400 group-focus-within:text-zinc-800 dark:group-focus-within:text-zinc-200 transition-colors" />
+                            <div className="ml-3 flex-1">
+                                <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wide mb-0.5">Full Name</label>
+                                <input 
+                                    required
+                                    autoFocus
+                                    className="w-full bg-transparent border-none p-0 text-sm font-semibold text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-600 placeholder:opacity-50 focus:ring-0 focus:outline-none appearance-none"
+                                    placeholder="e.g. Rahul Sharma"
+                                    value={formData.name}
+                                    onChange={e => setFormData({...formData, name: e.target.value})}
+                                />
+                            </div>
+                        </div>
                     </div>
 
-                    <div className="flex gap-4">
-                        <div className="space-y-1.5 flex-1">
-                            <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5 ml-1">
-                                <Phone className="h-3.5 w-3.5" /> Mobile
-                            </label>
-                            <input 
-                                required
-                                type="tel"
-                                className="w-full bg-muted/20 border-2 border-muted hover:border-muted-foreground/30 focus:border-primary focus:bg-white dark:focus:bg-zinc-950 rounded-xl p-3 text-sm transition-all outline-none font-medium"
-                                placeholder="98765..."
-                                value={formData.phone}
-                                onChange={e => setFormData({...formData, phone: e.target.value})}
-                            />
+                    {/* Phone Input */}
+                    <div className="group bg-zinc-50 dark:bg-zinc-900/50 border border-transparent focus-within:border-zinc-300 dark:focus-within:border-zinc-700 rounded-2xl transition-all duration-200">
+                        <div className="flex items-center px-4 py-3">
+                            <Phone className="h-5 w-5 text-zinc-400 group-focus-within:text-zinc-800 dark:group-focus-within:text-zinc-200 transition-colors" />
+                            <div className="ml-3 flex-1">
+                                <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wide mb-0.5">Mobile Number</label>
+                                <input 
+                                    required
+                                    type="tel"
+                                    className="w-full bg-transparent border-none p-0 text-sm font-semibold text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-600 placeholder:opacity-50 focus:ring-0 focus:outline-none appearance-none"
+                                    placeholder="98765 43210"
+                                    value={formData.phone}
+                                    onChange={e => setFormData({...formData, phone: e.target.value.replace(/\D/g, '')})}
+                                />
+                            </div>
                         </div>
-                        <div className="space-y-1.5 w-1/3">
-                            <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide ml-1">Gender</label>
-                            <select 
-                                className="w-full bg-muted/20 border-2 border-muted hover:border-muted-foreground/30 focus:border-primary focus:bg-white dark:focus:bg-zinc-950 rounded-xl p-3 text-sm transition-all outline-none font-medium appearance-none"
-                                value={formData.gender}
-                                onChange={e => setFormData({...formData, gender: e.target.value})}
+                    </div>
+
+                    {/* Gender Toggle */}
+                    <div className="grid grid-cols-3 gap-2 p-1 bg-zinc-100 dark:bg-zinc-900 rounded-xl">
+                        {['Male', 'Female', 'Other'].map((g) => (
+                            <button
+                                key={g}
+                                type="button"
+                                onClick={() => setFormData({...formData, gender: g})}
+                                className={cn(
+                                    "py-2 text-xs font-bold rounded-lg transition-all",
+                                    formData.gender === g 
+                                        ? "bg-white dark:bg-zinc-800 text-black dark:text-white shadow-sm scale-[1.02]" 
+                                        : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+                                )}
                             >
-                                <option>Male</option>
-                                <option>Female</option>
-                            </select>
+                                {g}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                {/* 2. Journey Info */}
+                <div className="space-y-4">
+                    <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-widest pl-1">Journey Details</h3>
+                    
+                    {/* Boarding Point */}
+                    <div className="group bg-zinc-50 dark:bg-zinc-900/50 border border-transparent focus-within:border-zinc-300 dark:focus-within:border-zinc-700 rounded-2xl transition-all duration-200">
+                        <div className="flex items-center px-4 py-3">
+                            <MapPin className="h-5 w-5 text-zinc-400 group-focus-within:text-zinc-800 dark:group-focus-within:text-zinc-200 transition-colors" />
+                            <div className="ml-3 flex-1">
+                                <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wide mb-0.5">Boarding From</label>
+                                <select 
+                                    className="w-full bg-transparent border-none p-0 text-sm font-semibold text-zinc-900 dark:text-zinc-100 focus:ring-0 cursor-pointer"
+                                    value={formData.boardingPoint}
+                                    onChange={e => setFormData({...formData, boardingPoint: e.target.value})}
+                                >
+                                    {(selectedTrip?.boardingPoints || ['Main Office']).map((point, index) => (
+                                        <option key={index} value={point} className="bg-white dark:bg-zinc-900">{point}</option>
+                                    ))}
+                                </select>
+                            </div>
                         </div>
                     </div>
 
-                    <div className="space-y-1.5">
-                        <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5 ml-1">
-                            <MapPin className="h-3.5 w-3.5" /> Boarding Point
-                        </label>
-                        <select 
-                            className="w-full bg-muted/20 border-2 border-muted hover:border-muted-foreground/30 focus:border-primary focus:bg-white dark:focus:bg-zinc-950 rounded-xl p-3 text-sm transition-all outline-none font-medium"
-                            value={formData.boardingPoint}
-                            onChange={e => setFormData({...formData, boardingPoint: e.target.value})}
-                            disabled={isLoadingData}
-                        >
-                            {boardingPoints.map((point, index) => (
-                                <option key={index} value={point}>{point}</option>
-                            ))}
-                            {boardingPoints.length === 0 && <option>Main Office</option>}
-                        </select>
-                    </div>
-
-                     <div className="space-y-1.5">
-                        <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5 ml-1">
-                            <CreditCard className="h-3.5 w-3.5" /> Amount (₹)
-                        </label>
-                        <input 
-                            type="number"
-                            className="w-full bg-green-50/50 dark:bg-green-900/10 border-2 border-green-200 dark:border-green-800 focus:border-green-500 rounded-xl p-3 text-lg font-mono font-bold text-green-700 dark:text-green-400 outline-none transition-all"
-                            value={formData.amount}
-                            onChange={e => setFormData({...formData, amount: e.target.value})}
-                        />
+                    {/* Amount */}
+                    <div className="group bg-zinc-50 dark:bg-zinc-900/50 border border-transparent focus-within:border-green-500/50 rounded-2xl transition-all duration-200">
+                        <div className="flex items-center px-4 py-3">
+                            <CreditCard className="h-5 w-5 text-zinc-400 group-focus-within:text-green-600 transition-colors" />
+                            <div className="ml-3 flex-1">
+                                <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wide mb-0.5">Total Amount</label>
+                                <div className="flex items-center">
+                                    <span className="text-sm font-bold text-zinc-400 mr-1">₹</span>
+                                    <input 
+                                        type="number"
+                                        className="w-full bg-transparent border-none p-0 text-lg font-bold text-zinc-900 dark:text-zinc-100 focus:ring-0 focus:outline-none appearance-none"
+                                        value={formData.amount}
+                                        onChange={e => setFormData({...formData, amount: e.target.value})}
+                                    />
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </form>
 
             {/* Footer Actions */}
-            <div className="p-6 border-t border-border bg-muted/10 space-y-4 shrink-0">
+            <div className="p-6 border-t border-zinc-100 dark:border-zinc-900 bg-white dark:bg-zinc-950 space-y-3 shrink-0">
                 <button 
                     type="submit" 
                     form="booking-form"
-                    className="w-full bg-zinc-900 hover:bg-black dark:bg-white dark:hover:bg-zinc-200 text-white dark:text-black font-bold text-base py-4 rounded-xl shadow-xl transition-transform active:scale-[0.98] flex items-center justify-center gap-3"
+                    className="w-full bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-200 text-white dark:text-black font-bold text-sm py-4 rounded-2xl shadow-lg shadow-zinc-900/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2 group"
                 >
                     <span>Confirm Booking</span>
-                    {/* Enter Key hint */}
-                    <kbd className="hidden md:inline-flex h-6 items-center gap-1 rounded border border-white/20 bg-white/10 px-2 font-mono text-[10px] font-medium text-white opacity-80">
-                        <span className="text-xs">RET</span>
-                    </kbd>
+                    <Send className="w-4 h-4 transition-transform group-hover:translate-x-1" />
                 </button>
                 
                 <div className="grid grid-cols-2 gap-3">
-                    <button className="py-3 px-3 rounded-xl border-2 border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-900/10 dark:border-amber-800 dark:text-amber-500 text-sm font-bold transition-colors">
+                    <button 
+                        type="button"
+                        onClick={() => submitBooking(null, 'Blocked')} 
+                        className="py-3 rounded-xl bg-amber-50 text-amber-600 hover:bg-amber-100 dark:bg-amber-900/10 dark:text-amber-500 text-xs font-bold transition-colors"
+                    >
                         Block Seat
                     </button>
-                    <button className="py-3 px-3 rounded-xl border-2 border-red-100 bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/10 dark:border-red-800 dark:text-red-500 text-sm font-bold transition-colors">
+                    <button onClick={() => dispatch(closeBookingPanel())} className="py-3 rounded-xl bg-zinc-50 text-zinc-600 hover:bg-zinc-100 dark:bg-zinc-900 dark:text-zinc-400 text-xs font-bold transition-colors">
                         Cancel
                     </button>
                 </div>

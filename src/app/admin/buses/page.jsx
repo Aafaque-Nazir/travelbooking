@@ -1,18 +1,14 @@
-'use client'
+"use client"
 import React, { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Plus, Bus, Trash2 } from 'lucide-react'
+import { Plus, Bus, Trash2, Pencil } from 'lucide-react'
 import { toast } from 'sonner'
 
 export default function FleetPage() {
     const [buses, setBuses] = useState([])
     const [isLoading, setIsLoading] = useState(true)
     const [isAdding, setIsAdding] = useState(false)
-
-    useEffect(() => {
-        fetchBuses()
-    }, [])
-
+    const [editingBus, setEditingBus] = useState(null)
     const [errorMsg, setErrorMsg] = useState(null)
 
     useEffect(() => {
@@ -34,10 +30,10 @@ export default function FleetPage() {
         setIsLoading(false)
     }
 
-    const handleAddBus = async (e) => {
+    const handleSaveBus = async (e) => {
         e.preventDefault()
         const formData = new FormData(e.target)
-        const newBus = {
+        const busData = {
             name: formData.get('name'),
             number_plate: formData.get('number_plate'),
             type: formData.get('type'), // Volvo, Scania
@@ -45,21 +41,47 @@ export default function FleetPage() {
             seat_layout_type: formData.get('seat_layout_type')
         }
 
-        console.log("📤 Attempting to save bus:", newBus)
-        toast.info("Saving bus...")
+        console.log("📤 Attempting to save bus:", busData)
+        toast.info(editingBus ? "Updating bus..." : "Saving bus...")
 
-        const { data, error } = await supabase.from('buses').insert([newBus]).select()
+        let result
+        if (editingBus) {
+             result = await supabase
+                .from('buses')
+                .update(busData)
+                .eq('id', editingBus.id)
+                .select()
+        } else {
+             result = await supabase
+                .from('buses')
+                .insert([busData])
+                .select()
+        }
         
+        const { data, error } = result
         console.log("📥 Supabase Response - Data:", data, "Error:", error)
 
         if (error) {
-            console.error("❌ INSERT Error:", error)
+            console.error("❌ Save Error:", error)
             toast.error("Failed: " + error.message)
         } else {
-            toast.success('Bus added successfully!')
+            toast.success(editingBus ? 'Bus updated successfully!' : 'Bus added successfully!')
             setIsAdding(false)
+            setEditingBus(null)
             fetchBuses()
         }
+    }
+
+    const handleEdit = (bus) => {
+        setEditingBus(bus)
+        setIsAdding(true)
+        // Scroll to top to see form
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+
+    const handleCancel = () => {
+        setIsAdding(false)
+        setEditingBus(null)
     }
 
     const handleDelete = async (id) => {
@@ -81,7 +103,10 @@ export default function FleetPage() {
                     <p className="text-zinc-400">Manage your buses and configurations.</p>
                 </div>
                 <button 
-                    onClick={() => setIsAdding(!isAdding)}
+                    onClick={() => {
+                        setEditingBus(null)
+                        setIsAdding(!isAdding)
+                    }}
                     className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-lg hover:bg-indigo-500 transition-colors font-medium shadow-lg shadow-indigo-600/20"
                 >
                     <Plus className="w-4 h-4" />
@@ -91,27 +116,31 @@ export default function FleetPage() {
 
             {isAdding && (
                 <div className="p-6 bg-zinc-900 border border-indigo-500/30 rounded-2xl animate-in slide-in-from-top-4 fade-in">
-                    <h3 className="font-semibold text-white mb-4">New Bus Details</h3>
-                    <form onSubmit={handleAddBus} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        <input name="name" placeholder="Bus Name (e.g. Mumbai Express)" required className="bg-zinc-950 border border-zinc-800 rounded-lg p-3 text-sm text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
-                        <input name="number_plate" placeholder="Number Plate (e.g. MH-04-AB-1234)" required className="bg-zinc-950 border border-zinc-800 rounded-lg p-3 text-sm text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
-                        <select name="type" className="bg-zinc-950 border border-zinc-800 rounded-lg p-3 text-sm text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                    <h3 className="font-semibold text-white mb-4">{editingBus ? 'Edit Bus Details' : 'New Bus Details'}</h3>
+                    <form 
+                        key={editingBus ? editingBus.id : 'new'} 
+                        onSubmit={handleSaveBus} 
+                        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+                    >
+                        <input name="name" defaultValue={editingBus?.name} placeholder="Bus Name (e.g. Mumbai Express)" required className="bg-zinc-950 border border-zinc-800 rounded-lg p-3 text-sm text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                        <input name="number_plate" defaultValue={editingBus?.number_plate} placeholder="Number Plate (e.g. MH-04-AB-1234)" required className="bg-zinc-950 border border-zinc-800 rounded-lg p-3 text-sm text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                        <select name="type" defaultValue={editingBus?.type} className="bg-zinc-950 border border-zinc-800 rounded-lg p-3 text-sm text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
                             <option value="Volvo Multi-Axle">Volvo Multi-Axle</option>
                             <option value="Scania Sleeper">Scania Sleeper</option>
                             <option value="Mercedes Benz">Mercedes Benz</option>
                             <option value="Non-AC Seater">Non-AC Seater</option>
                             <option value="Non-AC Sleeper">Non-AC Sleeper</option>
                         </select>
-                        <input name="total_seats" type="number" defaultValue="40" placeholder="Total Seats" required className="bg-zinc-950 border border-zinc-800 rounded-lg p-3 text-sm text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
-                        <select name="seat_layout_type" className="bg-zinc-950 border border-zinc-800 rounded-lg p-3 text-sm text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                        <input name="total_seats" type="number" defaultValue={editingBus?.total_seats || 40} placeholder="Total Seats" required className="bg-zinc-950 border border-zinc-800 rounded-lg p-3 text-sm text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                        <select name="seat_layout_type" defaultValue={editingBus?.seat_layout_type} className="bg-zinc-950 border border-zinc-800 rounded-lg p-3 text-sm text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
                             <option value="2+2">2+2 Seater</option>
                             <option value="2+1">2+1 Sleeper</option>
                             <option value="2+1 Seater">2+1 Seater</option>
                             <option value="2+2 Sleeper">2+2 Sleeper</option>
                         </select>
                         <div className="flex items-center gap-2">
-                             <button type="submit" className="flex-1 bg-white text-black font-bold py-3 rounded-lg hover:bg-zinc-200">Save Bus</button>
-                             <button type="button" onClick={() => setIsAdding(false)} className="px-4 py-3 bg-zinc-800 text-white rounded-lg hover:bg-zinc-700">Cancel</button>
+                             <button type="submit" className="flex-1 bg-white text-black font-bold py-3 rounded-lg hover:bg-zinc-200">{editingBus ? 'Update Bus' : 'Save Bus'}</button>
+                             <button type="button" onClick={handleCancel} className="px-4 py-3 bg-zinc-800 text-white rounded-lg hover:bg-zinc-700">Cancel</button>
                         </div>
                     </form>
                 </div>
@@ -131,9 +160,14 @@ export default function FleetPage() {
                             <div className="w-12 h-12 bg-zinc-800 rounded-lg flex items-center justify-center group-hover:bg-indigo-500/20 group-hover:text-indigo-400 transition-colors">
                                 <Bus className="w-6 h-6" />
                             </div>
-                            <button onClick={() => handleDelete(bus.id)} className="text-zinc-600 hover:text-red-400 p-2">
-                                <Trash2 className="w-4 h-4" />
-                            </button>
+                            <div className="flex items-center gap-1">
+                                <button onClick={() => handleEdit(bus)} className="text-zinc-600 hover:text-indigo-400 p-2 transform hover:scale-110 transition-all" title="Edit">
+                                    <Pencil className="w-4 h-4" />
+                                </button>
+                                <button onClick={() => handleDelete(bus.id)} className="text-zinc-600 hover:text-red-400 p-2 transform hover:scale-110 transition-all" title="Delete">
+                                    <Trash2 className="w-4 h-4" />
+                                </button>
+                            </div>
                         </div>
                         <h3 className="font-bold text-lg text-white mb-1">{bus.name}</h3>
                         <div className="flex items-center gap-2 text-sm text-zinc-400 font-mono mb-4">
@@ -156,4 +190,5 @@ export default function FleetPage() {
             </div>
         </div>
     )
+
 }

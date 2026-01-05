@@ -2,7 +2,7 @@ import { createSlice } from '@reduxjs/toolkit'
 
 const initialState = {
     selectedDate: null,
-    selectedTripId: null,
+    selectedTrip: null, // Full trip object { id, name, price, bus: {...}, route: {...} }
     selectedSeats: [], // Array of seat objects { seat_number: '1', status: 'Available' }
     seats: [],
     isBookingOpen: false,
@@ -16,9 +16,11 @@ export const bookingSlice = createSlice({
             state.selectedDate = action.payload
             state.selectedSeats = [] // clear selection on date change
             state.isBookingOpen = false
+            // Keep selectedTrip if valid, or clear it? Better to clear to force re-selection or re-validation
+            state.selectedTrip = null
         },
-        setSelectedTripId: (state, action) => {
-            state.selectedTripId = action.payload
+        setSelectedTrip: (state, action) => {
+            state.selectedTrip = action.payload // Now storing full object
             state.selectedSeats = [] // clear selection on trip change
             state.isBookingOpen = false
         },
@@ -63,6 +65,6 @@ export const bookingSlice = createSlice({
     },
 })
 
-export const { setSelectedDate, setSelectedTripId, toggleSeat, clearSelection, setSeats, closeBookingPanel, optimisticUpdateSeatStatus } = bookingSlice.actions
+export const { setSelectedDate, setSelectedTrip, toggleSeat, clearSelection, setSeats, closeBookingPanel, optimisticUpdateSeatStatus } = bookingSlice.actions
 
 export default bookingSlice.reducer
