@@ -51,7 +51,7 @@ export default function TripSelector() {
                     .select(`
                         *,
                         buses (id, name, type, total_seats, seat_layout_type),
-                        routes (source_city, destination_city, boarding_points)
+                        routes (*)
                     `)
                     .eq('is_active', true)
                     .order('departure_time', { ascending: true }),
@@ -83,6 +83,39 @@ export default function TripSelector() {
                 }
 
                 const bookedCount = bookingCounts[service.id] || 0
+                
+                // TEMPORARY: Disable normalization to test
+                // const normalizePoints = (points) => {
+                //     if (!Array.isArray(points)) return []
+                //     return points.map(p => {
+                //         if (typeof p === 'object' && p !== null) {
+                //             let name = p.name
+                //             let price = p.price || 0
+                //             if (typeof name === 'string' && name.trim().startsWith('{')) {
+                //                 try {
+                //                     const parsed = JSON.parse(name)
+                //                     if (parsed.name) {
+                //                         name = parsed.name
+                //                         price = parsed.price || price
+                //                     }
+                //                 } catch(e){}
+                //             }
+                //             return { name: name || 'Station', price }
+                //         }
+                //          if (typeof p === 'string') {
+                //             const cleaned = p.trim()
+                //             if (cleaned.startsWith('{')) {
+                //                 try {
+                //                     const parsed = JSON.parse(cleaned)
+                //                     if (parsed.name) return parsed
+                //                 } catch (e) {}
+                //             }
+                //             return { name: cleaned, price: 0 }
+                //         }
+                //         return { name: 'Unknown', price: 0 }
+                //     })
+                // }
+
                 return {
                     id: service.id,
                     // Specific fields for grouping
@@ -97,6 +130,7 @@ export default function TripSelector() {
                     totalSeats: service.buses.total_seats || 40,
                     price: service.price,
                     layout: service.buses.seat_layout_type,
+                    // TEMPORARY: Use raw data without normalization
                     boardingPoints: service.routes.boarding_points || [],
                     droppingPoints: service.routes.dropping_points || [],
                     busId: service.buses.id

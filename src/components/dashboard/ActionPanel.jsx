@@ -7,7 +7,6 @@ import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-
 import { supabase } from '@/lib/supabase'
 
 export default function ActionPanel({ isMobileExpanded = true, onToggleExpand }) {
@@ -37,10 +36,14 @@ export default function ActionPanel({ isMobileExpanded = true, onToggleExpand })
             
             const pointName = getPointName(defaultBoarding)
             const dropName = getPointName(defaultDropping)
-            const pointPrice = getPointPrice(defaultBoarding)
+            
+            const bpPrice = getPointPrice(defaultBoarding)
+            const dpPrice = getPointPrice(defaultDropping)
 
-            // Override Logic: If point has price, use it. Else use Base Price.
-            const finalUnitCost = pointPrice > 0 ? pointPrice : selectedTrip.price
+            // Override Logic: Dropping Price > Boarding Price > Base Price
+            let finalUnitCost = selectedTrip.price
+            if (dpPrice > 0) finalUnitCost = dpPrice
+            else if (bpPrice > 0) finalUnitCost = bpPrice
 
             setFormData(prev => ({
                 ...prev,
@@ -54,12 +57,18 @@ export default function ActionPanel({ isMobileExpanded = true, onToggleExpand })
     const handleBoardingPointChange = (e) => {
         const newPointName = e.target.value
         
-        // Recalculate Amount based on new point
-        const pointObj = selectedTrip?.boardingPoints?.find(p => getPointName(p) === newPointName)
-        const pointPrice = pointObj ? getPointPrice(pointObj) : 0
+        // Find objects
+        const bpObj = selectedTrip?.boardingPoints?.find(p => getPointName(p) === newPointName)
+        const dpObj = selectedTrip?.droppingPoints?.find(p => getPointName(p) === formData.droppingPoint)
+        
+        const bpPrice = bpObj ? getPointPrice(bpObj) : 0
+        const dpPrice = dpObj ? getPointPrice(dpObj) : 0
         
         // Override Logic
-        const finalUnitCost = pointPrice > 0 ? pointPrice : selectedTrip.price
+        let finalUnitCost = selectedTrip.price
+        // Logic: specific dropping price overrides specific boarding price overrides base
+        if (dpPrice > 0) finalUnitCost = dpPrice
+        else if (bpPrice > 0) finalUnitCost = bpPrice
         
         setFormData(prev => ({
             ...prev,
@@ -69,7 +78,25 @@ export default function ActionPanel({ isMobileExpanded = true, onToggleExpand })
     }
 
     const handleDroppingPointChange = (e) => {
-        setFormData(prev => ({ ...prev, droppingPoint: e.target.value }))
+        const newDropName = e.target.value
+        
+        // Find objects
+        const bpObj = selectedTrip?.boardingPoints?.find(p => getPointName(p) === formData.boardingPoint)
+        const dpObj = selectedTrip?.droppingPoints?.find(p => getPointName(p) === newDropName)
+
+        const bpPrice = bpObj ? getPointPrice(bpObj) : 0
+        const dpPrice = dpObj ? getPointPrice(dpObj) : 0
+
+        // Override Logic
+        let finalUnitCost = selectedTrip.price
+        if (dpPrice > 0) finalUnitCost = dpPrice
+        else if (bpPrice > 0) finalUnitCost = bpPrice
+
+        setFormData(prev => ({ 
+            ...prev, 
+            droppingPoint: newDropName,
+            amount: finalUnitCost * (selectedSeats.length || 1)
+        }))
     }
 
     const [stats, setStats] = React.useState({ count: 0, revenue: 0, totalSeats: 40 })
@@ -431,7 +458,7 @@ export default function ActionPanel({ isMobileExpanded = true, onToggleExpand })
                             <div className="ml-3 flex-1">
                                 <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wide mb-0.5">Boarding From</label>
                                 <select 
-                                    className="w-full bg-transparent border-none p-0 text-sm font-semibold text-zinc-900 dark:text-zinc-100 focus:ring-0 cursor-pointer"
+                                    className="w-full bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-primary/20 focus:outline-none cursor-pointer"
                                     value={formData.boardingPoint}
                                     onChange={handleBoardingPointChange}
                                 >
@@ -454,13 +481,15 @@ export default function ActionPanel({ isMobileExpanded = true, onToggleExpand })
                         <div className="flex items-center px-4 py-3">
                             <MapPin className="h-5 w-5 text-zinc-400 group-focus-within:text-zinc-800 dark:group-focus-within:text-zinc-200 transition-colors" />
                             <div className="ml-3 flex-1">
-                                <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wide mb-0.5">Dropping At</label>
+                                <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wide mb-0.5">
+                                    Dropping Point ({selectedTrip?.droppingPoints?.length || 0} in DB)
+                                </label>
                                 <select 
-                                    className="w-full bg-transparent border-none p-0 text-sm font-semibold text-zinc-900 dark:text-zinc-100 focus:ring-0 cursor-pointer"
+                                    className="w-full bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-primary/20 focus:outline-none cursor-pointer"
                                     value={formData.droppingPoint}
                                     onChange={handleDroppingPointChange}
                                 >
-                                    {(selectedTrip?.droppingPoints || ['Main Drop']).map((point, index) => {
+                                    {((selectedTrip?.droppingPoints?.length > 0 ? selectedTrip.droppingPoints : [{name: 'Main Drop', price: 0}])).map((point, index) => {
                                         const name = getPointName(point)
                                         return (
                                             <option key={index} value={name} className="bg-white dark:bg-zinc-900">
@@ -472,6 +501,8 @@ export default function ActionPanel({ isMobileExpanded = true, onToggleExpand })
                             </div>
                         </div>
                     </div>
+
+
 
                     {/* Amount */}
                     <div className="group bg-zinc-50 dark:bg-zinc-900/50 border border-transparent focus-within:border-green-500/50 rounded-2xl transition-all duration-200">
