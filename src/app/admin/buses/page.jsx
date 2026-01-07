@@ -41,7 +41,6 @@ export default function FleetPage() {
             seat_layout_type: formData.get('seat_layout_type')
         }
 
-        console.log("📤 Attempting to save bus:", busData)
         toast.info(editingBus ? "Updating bus..." : "Saving bus...")
 
         let result
@@ -57,9 +56,7 @@ export default function FleetPage() {
                 .insert([busData])
                 .select()
         }
-        
         const { data, error } = result
-        console.log("📥 Supabase Response - Data:", data, "Error:", error)
 
         if (error) {
             console.error("❌ Save Error:", error)

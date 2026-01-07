@@ -23,16 +23,45 @@ export default function ActionPanel({ isMobileExpanded = true, onToggleExpand })
         amount: 0 // This will be per seat price initially, then calculated as total
     })
     
+    // Helpers for Legacy (String) vs New (Object) Boarding Points
+    const getPointName = (p) => typeof p === 'string' ? p : (p?.name || '')
+    const getPointPrice = (p) => typeof p === 'string' ? 0 : parseFloat(p?.price || 0)
+
     // Derived state from Redux (Instant!)
     React.useEffect(() => {
         if (selectedTrip) {
+            // When Trip or Seats change, reset defaults
+            const defaultPoint = selectedTrip.boardingPoints?.[0] || 'Main Office'
+            const pointName = getPointName(defaultPoint)
+            const pointPrice = getPointPrice(defaultPoint)
+
+            // Override Logic: If point has price, use it. Else use Base Price.
+            const finalUnitCost = pointPrice > 0 ? pointPrice : selectedTrip.price
+
             setFormData(prev => ({
                 ...prev,
-                amount: selectedTrip.price * (selectedSeats.length || 1),
-                boardingPoint: selectedTrip.boardingPoints?.[0] || 'Main Office'
+                amount: finalUnitCost * (selectedSeats.length || 1),
+                boardingPoint: pointName
             }))
         }
     }, [selectedTrip, selectedSeats.length])
+
+    const handleBoardingPointChange = (e) => {
+        const newPointName = e.target.value
+        
+        // Recalculate Amount based on new point
+        const pointObj = selectedTrip?.boardingPoints?.find(p => getPointName(p) === newPointName)
+        const pointPrice = pointObj ? getPointPrice(pointObj) : 0
+        
+        // Override Logic
+        const finalUnitCost = pointPrice > 0 ? pointPrice : selectedTrip.price
+        
+        setFormData(prev => ({
+            ...prev,
+            boardingPoint: newPointName,
+            amount: finalUnitCost * (selectedSeats.length || 1)
+        }))
+    }
 
     const [stats, setStats] = React.useState({ count: 0, revenue: 0, totalSeats: 40 })
     const [manifestData, setManifestData] = React.useState([])
@@ -220,7 +249,7 @@ export default function ActionPanel({ isMobileExpanded = true, onToggleExpand })
             status: status
         }))
 
-        console.log(`Saving ${status} Bookings:`, bookingPayloads)
+
 
         // 2. Batch Insert to Supabase
         const { error } = await supabase.from('bookings').insert(bookingPayloads)
@@ -391,11 +420,17 @@ export default function ActionPanel({ isMobileExpanded = true, onToggleExpand })
                                 <select 
                                     className="w-full bg-transparent border-none p-0 text-sm font-semibold text-zinc-900 dark:text-zinc-100 focus:ring-0 cursor-pointer"
                                     value={formData.boardingPoint}
-                                    onChange={e => setFormData({...formData, boardingPoint: e.target.value})}
+                                    onChange={handleBoardingPointChange}
                                 >
-                                    {(selectedTrip?.boardingPoints || ['Main Office']).map((point, index) => (
-                                        <option key={index} value={point} className="bg-white dark:bg-zinc-900">{point}</option>
-                                    ))}
+                                    {(selectedTrip?.boardingPoints || ['Main Office']).map((point, index) => {
+                                        const name = getPointName(point)
+                                        const price = getPointPrice(point)
+                                        return (
+                                            <option key={index} value={name} className="bg-white dark:bg-zinc-900">
+                                                {name} {price > 0 ? `(₹${price})` : ''}
+                                            </option>
+                                        )
+                                    })}
                                 </select>
                             </div>
                         </div>

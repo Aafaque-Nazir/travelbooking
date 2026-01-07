@@ -7,6 +7,7 @@ import { useDispatch, useSelector } from 'react-redux'
 import { setSelectedDate, setSelectedTrip } from '@/store/bookingSlice'
 import { useAuth } from '@/context/AuthProvider'
 import { format } from 'date-fns'
+import { toast } from 'sonner'
 
 export default function TripSelector() {
     const dispatch = useDispatch()
@@ -38,18 +39,19 @@ export default function TripSelector() {
     }, [selectedDate])
 
     const fetchDailyServices = async () => {
+        if (!selectedDate) return
         try {
             setIsLoading(true)
             const dateStr = selectedDate.split('T')[0]
             
-            // 1. Parallel Fetch: Services + All Bookings for Date
+            // 1. Parallel Fetch: Services + All Bookings for Dates
             const [servicesRes, bookingsRes] = await Promise.all([
                 supabase
                     .from('master_services')
                     .select(`
                         *,
                         buses (id, name, type, total_seats, seat_layout_type),
-                        routes (source_city, destination_city, boarding_points, dropping_points)
+                        routes (source_city, destination_city, boarding_points)
                     `)
                     .eq('is_active', true)
                     .order('departure_time', { ascending: true }),
@@ -61,7 +63,8 @@ export default function TripSelector() {
                     .eq('status', 'Booked')
             ])
 
-            if (servicesRes.error) throw servicesRes.error
+            if (servicesRes.error) throw new Error(servicesRes.error.message)
+            
             const services = servicesRes.data || []
             const allBookings = bookingsRes.data || []
 
@@ -73,6 +76,12 @@ export default function TripSelector() {
 
             // 3. Construct Trip Objects
             const tripsData = services.map(service => {
+                // Safety check for missing relations
+                if (!service.buses || !service.routes) {
+                    console.warn("Invalid Service Data (Missing Bus/Route):", service)
+                    return null
+                }
+
                 const bookedCount = bookingCounts[service.id] || 0
                 return {
                     id: service.id,
@@ -88,11 +97,11 @@ export default function TripSelector() {
                     totalSeats: service.buses.total_seats || 40,
                     price: service.price,
                     layout: service.buses.seat_layout_type,
-                    boardingPoints: service.routes.boarding_points,
-                    droppingPoints: service.routes.dropping_points,
+                    boardingPoints: service.routes.boarding_points || [],
+                    droppingPoints: service.routes.dropping_points || [],
                     busId: service.buses.id
                 }
-            })
+            }).filter(Boolean) // Filter out nulls
 
             setTrips(tripsData)
             
@@ -102,6 +111,7 @@ export default function TripSelector() {
             }
         } catch (err) {
             console.error("Fetch Error:", err)
+            toast.error("Failed to load: " + (err.message || "Unknown Error"))
         } finally {
             setIsLoading(false)
         }

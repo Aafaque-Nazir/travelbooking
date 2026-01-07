@@ -1,5 +1,4 @@
-
-import { createClient } from '@supabase/supabase-js'
+import { createBrowserClient } from '@supabase/ssr'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -8,13 +7,13 @@ const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 const isConfigured = supabaseUrl && supabaseKey
 
 if (isConfigured) {
-    console.log("✅ Supabase client connected to:", supabaseUrl)
+    // console.log("✅ Supabase connected") 
 } else {
     console.error("❌ CRITICAL: Supabase keys are MISSING! Check your .env.local file.")
 }
 
 export const supabase = isConfigured
-    ? createClient(supabaseUrl, supabaseKey)
+    ? createBrowserClient(supabaseUrl, supabaseKey)
     : {
         auth: {
             getSession: async () => ({ data: { session: null } }),
