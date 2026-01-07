@@ -38,6 +38,13 @@ export async function middleware(request) {
         }
     }
 
+    // Protect Dashboard Routes (Agent/Staff)
+    if (request.nextUrl.pathname.startsWith('/dashboard')) {
+        if (!user) {
+            return NextResponse.redirect(new URL('/login', request.url))
+        }
+    }
+
     // Redirect Logged-in users away from Login page
     if (request.nextUrl.pathname === '/login') {
         if (user) {
@@ -49,5 +56,5 @@ export async function middleware(request) {
 }
 
 export const config = {
-    matcher: ['/admin/:path*', '/login'],
+    matcher: ['/admin/:path*', '/dashboard/:path*', '/login'],
 }
