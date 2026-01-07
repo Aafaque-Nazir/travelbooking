@@ -20,6 +20,7 @@ export default function ActionPanel({ isMobileExpanded = true, onToggleExpand })
         phone: '',
         gender: 'Male',
         boardingPoint: '',
+        droppingPoint: '',
         amount: 0 // This will be per seat price initially, then calculated as total
     })
     
@@ -31,9 +32,12 @@ export default function ActionPanel({ isMobileExpanded = true, onToggleExpand })
     React.useEffect(() => {
         if (selectedTrip) {
             // When Trip or Seats change, reset defaults
-            const defaultPoint = selectedTrip.boardingPoints?.[0] || 'Main Office'
-            const pointName = getPointName(defaultPoint)
-            const pointPrice = getPointPrice(defaultPoint)
+            const defaultBoarding = selectedTrip.boardingPoints?.[0] || 'Main Office'
+            const defaultDropping = selectedTrip.droppingPoints?.[0] || 'Main Drop'
+            
+            const pointName = getPointName(defaultBoarding)
+            const dropName = getPointName(defaultDropping)
+            const pointPrice = getPointPrice(defaultBoarding)
 
             // Override Logic: If point has price, use it. Else use Base Price.
             const finalUnitCost = pointPrice > 0 ? pointPrice : selectedTrip.price
@@ -41,7 +45,8 @@ export default function ActionPanel({ isMobileExpanded = true, onToggleExpand })
             setFormData(prev => ({
                 ...prev,
                 amount: finalUnitCost * (selectedSeats.length || 1),
-                boardingPoint: pointName
+                boardingPoint: pointName,
+                droppingPoint: dropName
             }))
         }
     }, [selectedTrip, selectedSeats.length])
@@ -61,6 +66,10 @@ export default function ActionPanel({ isMobileExpanded = true, onToggleExpand })
             boardingPoint: newPointName,
             amount: finalUnitCost * (selectedSeats.length || 1)
         }))
+    }
+
+    const handleDroppingPointChange = (e) => {
+        setFormData(prev => ({ ...prev, droppingPoint: e.target.value }))
     }
 
     const [stats, setStats] = React.useState({ count: 0, revenue: 0, totalSeats: 40 })
@@ -244,6 +253,7 @@ export default function ActionPanel({ isMobileExpanded = true, onToggleExpand })
             passenger_phone: formData.phone || '0000000000',
             gender: formData.gender,
             boarding_point: formData.boardingPoint,
+            dropping_point: formData.droppingPoint,
             amount: status === 'Blocked' ? 0 : (parseFloat(formData.amount) / selectedSeats.length),
             travel_date: dateStr,
             status: status
@@ -280,7 +290,10 @@ export default function ActionPanel({ isMobileExpanded = true, onToggleExpand })
                                 `*Passenger:* ${formData.name}%0A` +
                                 `*Seats:* ${seatNumbers}%0A` +
                                 `*Date:* ${formattedDate}%0A` +
+                                `*Seats:* ${seatNumbers}%0A` +
+                                `*Date:* ${formattedDate}%0A` +
                                 `*Boarding:* ${formData.boardingPoint}%0A` +
+                                `*Dropping:* ${formData.droppingPoint}%0A` +
                                 `*Amount:* ₹${formData.amount}%0A%0A` +
                                 `Thank you for traveling with us! 🙏`
                 
@@ -291,7 +304,7 @@ export default function ActionPanel({ isMobileExpanded = true, onToggleExpand })
             dispatch(closeBookingPanel())
             
             // Reset Fields
-            setFormData({ name: '', phone: '', gender: 'Male', boardingPoint: 'Main Office', amount: 0 })
+            setFormData({ name: '', phone: '', gender: 'Male', boardingPoint: 'Main Office', droppingPoint: 'Main Drop', amount: 0 })
             fetchTripStats() // Refresh stats
         }
     }
@@ -428,6 +441,30 @@ export default function ActionPanel({ isMobileExpanded = true, onToggleExpand })
                                         return (
                                             <option key={index} value={name} className="bg-white dark:bg-zinc-900">
                                                 {name} {price > 0 ? `(₹${price})` : ''}
+                                            </option>
+                                        )
+                                    })}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    {/* Dropping Point */}
+                    <div className="group bg-zinc-50 dark:bg-zinc-900/50 border border-transparent focus-within:border-zinc-300 dark:focus-within:border-zinc-700 rounded-2xl transition-all duration-200">
+                        <div className="flex items-center px-4 py-3">
+                            <MapPin className="h-5 w-5 text-zinc-400 group-focus-within:text-zinc-800 dark:group-focus-within:text-zinc-200 transition-colors" />
+                            <div className="ml-3 flex-1">
+                                <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wide mb-0.5">Dropping At</label>
+                                <select 
+                                    className="w-full bg-transparent border-none p-0 text-sm font-semibold text-zinc-900 dark:text-zinc-100 focus:ring-0 cursor-pointer"
+                                    value={formData.droppingPoint}
+                                    onChange={handleDroppingPointChange}
+                                >
+                                    {(selectedTrip?.droppingPoints || ['Main Drop']).map((point, index) => {
+                                        const name = getPointName(point)
+                                        return (
+                                            <option key={index} value={name} className="bg-white dark:bg-zinc-900">
+                                                {name}
                                             </option>
                                         )
                                     })}
