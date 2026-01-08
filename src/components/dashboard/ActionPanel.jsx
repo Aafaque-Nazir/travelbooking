@@ -268,33 +268,35 @@ export default function ActionPanel({ isMobileExpanded = true, onToggleExpand })
         )
     }
 
+    const [isSubmitting, setIsSubmitting] = React.useState(false)
+
     const submitBooking = async (e, status = 'Booked') => {
         if (e) e.preventDefault() // Prevent form submit if event is passed
+        
+        if (isSubmitting) return
+        setIsSubmitting(true)
 
-        // 1. Prepare Payloads for multiple seats
-        const bookingPayloads = selectedSeats.map(seat => ({
-            trip_id: null, 
-            service_id: selectedTrip.id,
-            seat_number: seat.seat_number,
-            passenger_name: formData.name || 'Blocked Seat', // Default name if blocked
-            passenger_phone: formData.phone || '0000000000',
-            gender: formData.gender,
-            boarding_point: formData.boardingPoint,
-            dropping_point: formData.droppingPoint,
-            amount: status === 'Blocked' ? 0 : (parseFloat(formData.amount) / selectedSeats.length),
-            travel_date: dateStr,
-            status: status
-        }))
+        try {
+            // 1. Prepare Payloads for multiple seats
+            const bookingPayloads = selectedSeats.map(seat => ({
+                trip_id: null, 
+                service_id: selectedTrip.id,
+                seat_number: seat.seat_number,
+                passenger_name: formData.name || 'Blocked Seat', // Default name if blocked
+                passenger_phone: formData.phone || '0000000000',
+                gender: formData.gender,
+                boarding_point: formData.boardingPoint,
+                dropping_point: formData.droppingPoint,
+                amount: status === 'Blocked' ? 0 : (parseFloat(formData.amount) / selectedSeats.length),
+                travel_date: dateStr,
+                status: status
+            }))
 
+            // 2. Batch Insert to Supabase
+            const { error } = await supabase.from('bookings').insert(bookingPayloads)
 
+            if (error) throw error
 
-        // 2. Batch Insert to Supabase
-        const { error } = await supabase.from('bookings').insert(bookingPayloads)
-
-        if (error) {
-            console.error("Booking Failed:", error)
-            toast.error("Booking Failed: " + error.message)
-        } else {
             // 3. Success Updates
             selectedSeats.forEach(seat => {
                 dispatch(optimisticUpdateSeatStatus({
@@ -308,15 +310,12 @@ export default function ActionPanel({ isMobileExpanded = true, onToggleExpand })
             toast.success(`Seats ${seatNumbers} ${status === 'Blocked' ? 'Blocked' : 'Booked'} successfully`)
             
             // 4. WhatsApp Integration (Only for confirmed bookings or if data exists)
-            // 4. WhatsApp Integration (Only for confirmed bookings or if data exists)
             if (formData.phone && status === 'Booked') {
                 const formattedDate = dateStr.split('-').reverse().join('/')
                 
                 const message = `*Booking Confirmed!* 🚍%0A%0A` +
                                 `*Bus Name:* ${selectedTrip.busName}%0A` +
                                 `*Passenger:* ${formData.name}%0A` +
-                                `*Seats:* ${seatNumbers}%0A` +
-                                `*Date:* ${formattedDate}%0A` +
                                 `*Seats:* ${seatNumbers}%0A` +
                                 `*Date:* ${formattedDate}%0A` +
                                 `*Boarding:* ${formData.boardingPoint}%0A` +
@@ -328,11 +327,21 @@ export default function ActionPanel({ isMobileExpanded = true, onToggleExpand })
                 window.open(waLink, '_blank')
             }
 
-            dispatch(closeBookingPanel())
-            
-            // Reset Fields
+            // 5. Cleanup & Close
+            // Important: Reset form and fetch stats BEFORE closing panel to avoid "unmounted" warning if panel helps render logic
             setFormData({ name: '', phone: '', gender: 'Male', boardingPoint: 'Main Office', droppingPoint: 'Main Drop', amount: 0 })
-            fetchTripStats() // Refresh stats
+            
+            // Note: fetchTripStats updates local state. If closeBookingPanel unmounts us, this might warn.
+            // But we want to ensure data is fresh.
+            await fetchTripStats() 
+            
+            dispatch(closeBookingPanel())
+
+        } catch (error) {
+            console.error("Booking Failed:", error)
+            toast.error("Booking Failed: " + (error.message || "Unknown error"))
+        } finally {
+            setIsSubmitting(false)
         }
     }
 
@@ -528,12 +537,21 @@ export default function ActionPanel({ isMobileExpanded = true, onToggleExpand })
             {/* Footer Actions */}
             <div className="p-6 border-t border-zinc-100 dark:border-zinc-900 bg-white dark:bg-zinc-950 space-y-3 shrink-0">
                 <button 
-                    type="submit" 
-                    form="booking-form"
-                    className="w-full bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-200 text-white dark:text-black font-bold text-sm py-4 rounded-2xl shadow-lg shadow-zinc-900/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2 group"
+                    onClick={(e) => submitBooking(e, 'Booked')}
+                    disabled={isSubmitting}
+                    className="w-full bg-white text-zinc-900 font-bold py-4 rounded-xl shadow-lg border border-zinc-200 active:scale-95 transition-transform flex items-center justify-center gap-2 hover:bg-zinc-50 disabled:opacity-70 disabled:pointer-events-none"
                 >
-                    <span>Confirm Booking</span>
-                    <Send className="w-4 h-4 transition-transform group-hover:translate-x-1" />
+                    {isSubmitting ? (
+                        <>
+                            <div className="w-4 h-4 border-2 border-zinc-900 border-t-transparent rounded-full animate-spin" />
+                            <span>Processing...</span>
+                        </>
+                    ) : (
+                        <>
+                            <span>Confirm Booking</span>
+                            <Send className="w-4 h-4" />
+                        </>
+                    )}
                 </button>
                 
                 <div className="grid grid-cols-2 gap-3">
