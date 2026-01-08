@@ -152,12 +152,12 @@ export default function SeatMap() {
                                 const block = Math.ceil(i / 3) - 1
                                 const rem = i % 3
                                 
-                                if (rem === 1) { // Seat 1, 4... (Right Window)
-                                    r = block
-                                    c = 3
-                                } else if (rem === 2) { // Seat 2, 5... (Right Inner)
+                                if (rem === 1) { // Seat 1, 4... (NOW Left/Inner of pair)
                                     r = block
                                     c = 2
+                                } else if (rem === 2) { // Seat 2, 5... (NOW Right/Window of pair)
+                                    r = block
+                                    c = 3
                                 } else { // Seat 3, 6... (Left Single) -> Shifted to align with NEXT block of right seats?
                                     // Wait, User wanted "3 ko ek seat piche".
                                     // If 1,2 are Row 0. 4,5 are Row 1.
